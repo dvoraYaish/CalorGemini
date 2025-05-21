@@ -1,6 +1,6 @@
 <resources>
     <string name="app_name">מחשבון מאזן קלוריות</string>
-    <string name="gemini_api_key">AIzaSyCbYOq3CsOlXI9O8D7EvK8LpPemOe3jTYQ</string>
+    <string name="gemini_api_key">???????</string>
     <string-array name="activity_levels">
         <item>מנוחה מוחלטת (שכיבה במיטה)</item>
         <item>פעילות מינימלית (עבודה משרדית)</item>

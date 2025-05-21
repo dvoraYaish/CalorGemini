@@ -1,5 +1,6 @@
 package com.example.calorgemini;
 
+
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
@@ -22,6 +23,11 @@ import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
@@ -36,6 +42,9 @@ public class MainActivity extends AppCompatActivity {
     private String selectedActivityLevel;
     private GenerativeModelFutures modelFutures;
     private final Executor executor = Executors.newSingleThreadExecutor();
+
+    // Gemini cache to reuse results, similar to the example in the presentation
+    private Map<String, String> geminiCache = new HashMap<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -62,9 +71,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void initializeGeminiApi() {
         // Initialize the GenerativeModel with your API key
-        // Using the correct model name according to the latest API version
         GenerativeModel gModel = new GenerativeModel(
-                "gemini-1.0-pro", // Updated model name
+                "gemini-1.5-flash", // Updated model name to match the presentation
                 getString(R.string.gemini_api_key)
         );
         modelFutures = GenerativeModelFutures.from(gModel);
@@ -130,12 +138,19 @@ public class MainActivity extends AppCompatActivity {
         String weightGoal = rgWeightGoal.getCheckedRadioButtonId() == R.id.rbLoseWeight ?
                 "ירידה במשקל" : "עלייה במשקל";
 
-        // Create prompt for Gemini API
+        // Create prompt for Gemini API using template pattern from the presentation
         String prompt = createGeminiPrompt(age, weight, height, gender,
                 selectedActivityLevel, weightGoal, weightChangeRate);
 
         // Show loading state
         tvResult.setText("מחשב...");
+
+        // Check if we have the result in cache, similar to the presentation example
+        if (geminiCache.containsKey(prompt)) {
+            // Return cached result if available
+            tvResult.setText(geminiCache.get(prompt));
+            return;
+        }
 
         // Query Gemini API
         queryGeminiApi(prompt);
@@ -144,24 +159,33 @@ public class MainActivity extends AppCompatActivity {
     private String createGeminiPrompt(int age, double weight, double height,
                                       String gender, String activityLevel,
                                       String weightGoal, double weightChangeRate) {
-        return "חשב את צריכת הקלוריות היומית המומלצת עבור אדם בעל המאפיינים הבאים:\n" +
-                "- גיל: " + age + " שנים\n" +
-                "- משקל: " + weight + " ק\"ג\n" +
-                "- גובה: " + height + " ס\"מ\n" +
-                "- מגדר: " + gender + "\n" +
-                "- רמת פעילות גופנית: " + activityLevel + "\n" +
-                "- מטרת משקל: " + weightGoal + "\n" +
-                "- קצב " + (weightGoal.equals("ירידה במשקל") ? "ירידה" : "עלייה") +
-                " במשקל מבוקש: " + weightChangeRate + " ק\"ג בשבוע\n\n" +
-                "אנא חשב:\n" +
-                "1. BMR (קצב חילוף חומרים בסיסי) לפי נוסחת Mifflin-St Jeor\n" +
-                "2. TDEE (סך הוצאת אנרגיה יומית) בהתבסס על רמת הפעילות\n" +
-                "3. צריכת קלוריות יומית מומלצת להשגת המטרה בקצב המבוקש\n" +
-                "4. חלוקה מומלצת של מאקרו-נוטריאנטים (חלבונים, פחמימות, שומנים)\n" +
-                "5. המלצות תזונתיות בסיסיות להשגת המטרה\n\n" +
-                "תן את התשובה בעברית בפורמט תמציתי, ברור ומסודר.";
+        // Using the template pattern with %PLACEHOLDER% from the presentation
+        String promptTemplate =
+                "חשב את צריכת הקלוריות היומית המומלצת עבור אדם בעל המאפיינים הבאים:\n" +
+                        "- גיל: %AGE% שנים\n" +
+                        "- משקל: %WEIGHT% ק\"ג\n" +
+                        "- גובה: %HEIGHT% ס\"מ\n" +
+                        "- מגדר: %GENDER%\n" +
+                        "- רמת פעילות גופנית: %ACTIVITY_LEVEL%\n" +
+                        "- מטרת משקל: %WEIGHT_GOAL%\n" +
+                        "- קצב %CHANGE_DIRECTION% במשקל מבוקש: %WEIGHT_CHANGE_RATE% ק\"ג בשבוע\n\n" +
+                        "תן רק את מס הקלוריות ליום שיש לצרוך";
+
+        // Replace placeholders with actual values
+        String prompt = promptTemplate
+                .replace("%AGE%", String.valueOf(age))
+                .replace("%WEIGHT%", String.valueOf(weight))
+                .replace("%HEIGHT%", String.valueOf(height))
+                .replace("%GENDER%", gender)
+                .replace("%ACTIVITY_LEVEL%", activityLevel)
+                .replace("%WEIGHT_GOAL%", weightGoal)
+                .replace("%WEIGHT_CHANGE_RATE%", String.valueOf(weightChangeRate))
+                .replace("%CHANGE_DIRECTION%", weightGoal.equals("ירידה במשקל") ? "ירידה" : "עלייה");
+
+        return prompt;
     }
 
+    // The askGemini function like shown in the presentation
     private void queryGeminiApi(String prompt) {
         Content content = new Content.Builder()
                 .addText(prompt)
@@ -172,7 +196,11 @@ public class MainActivity extends AppCompatActivity {
         Futures.addCallback(response, new FutureCallback<GenerateContentResponse>() {
             @Override
             public void onSuccess(GenerateContentResponse result) {
-                String responseText = result.getText();
+                final String responseText = result.getText();
+
+                // Cache the result
+                geminiCache.put(prompt, responseText);
+
                 runOnUiThread(() -> {
                     tvResult.setText(responseText);
                 });
@@ -181,29 +209,51 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onFailure(Throwable t) {
                 runOnUiThread(() -> {
-                    String errorMsg = "שגיאה: " + t.getMessage();
-                    // Add more detailed error information
-                    if (t.getCause() != null) {
-                        errorMsg += "\n\nסיבה: " + t.getCause().getMessage();
-                    }
-                    tvResult.setText(errorMsg);
-
-                    // Show a simplified error message in the toast
-                    String toastMsg = "שגיאה בחיבור ל-Gemini API";
-                    if (t.getMessage().contains("models/gemini")) {
-                        toastMsg = "שגיאה: מודל Gemini לא נמצא";
-                    } else if (t.getMessage().contains("Authentication")) {
-                        toastMsg = "שגיאה: מפתח API לא תקין";
-                    } else if (t.getMessage().contains("network")) {
-                        toastMsg = "שגיאת רשת: אנא בדוק את החיבור לאינטרנט";
-                    }
-                    Toast.makeText(MainActivity.this, toastMsg, Toast.LENGTH_LONG).show();
-
-                    // Log the error for debugging
                     Log.e("GeminiAPI", "Error calling Gemini API", t);
+                    String errorMsg = "שגיאה: " + t.getMessage();
+                    tvResult.setText(errorMsg);
+                    Toast.makeText(MainActivity.this, "שגיאה בקריאה ל-Gemini API", Toast.LENGTH_LONG).show();
                 });
             }
         }, executor);
     }
-}
 
+    // Example of how to handle structured data like in the presentation
+    private Map<String, Object> parseNutritionData(String geminiResponse) {
+        Map<String, Object> nutritionData = new HashMap<>();
+
+        try {
+            // Simple string parsing to extract key values
+            if (geminiResponse.contains("BMR:")) {
+                String bmrStr = geminiResponse.substring(
+                        geminiResponse.indexOf("BMR:") + 4,
+                        geminiResponse.indexOf("קלוריות (קצב")
+                ).trim();
+                nutritionData.put("BMR", Integer.parseInt(bmrStr));
+            }
+
+            if (geminiResponse.contains("TDEE:")) {
+                String tdeeStr = geminiResponse.substring(
+                        geminiResponse.indexOf("TDEE:") + 5,
+                        geminiResponse.indexOf("קלוריות (צריכת")
+                ).trim();
+                nutritionData.put("TDEE", Integer.parseInt(tdeeStr));
+            }
+
+            if (geminiResponse.contains("מספר קלוריות יומי:")) {
+                String caloriesStr = geminiResponse.substring(
+                        geminiResponse.indexOf("מספר קלוריות יומי:") + 18,
+                        geminiResponse.indexOf("קלוריות", geminiResponse.indexOf("מספר קלוריות יומי:"))
+                ).trim();
+                nutritionData.put("DAILY_CALORIES", Integer.parseInt(caloriesStr));
+            }
+
+            // Additional parsing for macronutrients could be implemented here
+
+        } catch (Exception e) {
+            Log.e("ParsingError", "Error parsing nutrition data", e);
+        }
+
+        return nutritionData;
+    }
+}
